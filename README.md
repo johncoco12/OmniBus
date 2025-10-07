@@ -182,13 +182,12 @@ Dependency Injection (tsyringe) allows plugging additional transports (Azure Ser
 
 Short-term:
 - Azure Service Bus (peek / send / dead-letter)
-- Message filtering & search
-- Export / import messages (JSON)
+- Message filtering & search ✅
+- Export / import messages (JSON) ✅
 
 Mid-term:
-- Role-based permission model
 - Pluggable auth providers
-- Bulk operations (purge, move batch)
+- Bulk operations (purge, move batch) ✅
 
 Long-term:
 - Metrics panel (rates, DLQ trends)
