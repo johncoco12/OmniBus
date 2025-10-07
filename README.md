@@ -7,7 +7,7 @@ Simple web explorer for message brokers. RabbitMQ works today. Azure Service Bus
 <p>
 <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange" />
 <img alt="License" src="https://img.shields.io/badge/license-NCPFL-important" />
-<img alt="Node" src="https://img.shields.io/badge/node-%3E=18-green" />
+<img alt="Node" src="https://img.shields.io/badge/node-%3E=20.4-green" />
 <img alt="Type" src="https://img.shields.io/badge/model-source--available-lightgrey" />
 </p>
 
