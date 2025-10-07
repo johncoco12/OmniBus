@@ -14,7 +14,13 @@ Simple web explorer for message brokers. RabbitMQ works today. Azure Service Bus
 </div>
 
 ---
+<div align="center">
 
+<img src="https://imgur.com/fZ7QhZl.png" alt="OmniBus overview interface showing queue list, selected queue details, and message viewer panel" width="1000" />
+
+<em>OmniBus overview screen (alpha).</em>
+
+</div>
 ## Overview
 
 OmniBus lets you browse queues and messages in the browser with no install other than `npm install`. It aims to stay fast, clear, and minimal.
@@ -51,6 +57,7 @@ Planned Azure Service Bus (ASB) sequence:
 3. Peek + deferred + DLQ view
 4. Send + schedule
 5. Move / dead-letter operations
+
 
 ## Quick Start (RabbitMQ local)
 
