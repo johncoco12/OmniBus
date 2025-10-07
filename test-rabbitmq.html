@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RabbitMQ Connection Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+</head>
+<body>
+    <h1>RabbitMQ Web STOMP Connection Test</h1>
+    <button onclick="testConnection()">Test Connection</button>
+    <pre id="output"></pre>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('output');
+            output.textContent += message + '\n';
+            console.log(message);
+        }
+
+        function testConnection() {
+            document.getElementById('output').textContent = '';
+            log('Testing connection to RabbitMQ...');
+            log('WebSocket URL: ws://localhost:15674/ws');
+            log('Username: guest');
+            log('');
+
+            const client = new StompJs.Client({
+                brokerURL: 'ws://localhost:15674/ws',
+                connectHeaders: {
+                    login: 'guest',
+                    passcode: 'guest',
+                    host: '/'
+                },
+                debug: function (str) {
+                    log('STOMP: ' + str);
+                },
+                reconnectDelay: 0,
+                heartbeatIncoming: 4000,
+                heartbeatOutgoing: 4000
+            });
+
+            client.onConnect = function(frame) {
+                log('');
+                log('✓ SUCCESS! Connected to RabbitMQ');
+                log('Connection frame: ' + JSON.stringify(frame, null, 2));
+                client.deactivate();
+            };
+
+            client.onStompError = function(frame) {
+                log('');
+                log('✗ STOMP Error: ' + frame.headers['message']);
+                log('Details: ' + frame.body);
+            };
+
+            client.onWebSocketError = function(event) {
+                log('');
+                log('✗ WebSocket Error');
+                log('This usually means:');
+                log('1. RabbitMQ is not running');
+                log('2. Web-STOMP plugin is not enabled');
+                log('3. Port 15674 is not accessible');
+            };
+
+            client.activate();
+        }
+    </script>
+</body>
+</html>

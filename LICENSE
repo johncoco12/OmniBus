@@ -1,0 +1,57 @@
+SPDX-License-Identifier: LicenseRef-NCPFL-1.0
+
+Non-Commercial Public Fork License (NCPFL)
+================================================
+
+Version: 1.0
+Project: OmniBus
+Copyright (c) 2025 Jason Jesse Huber
+
+1. Definitions
+   "Software" means the source code, object code, assets, and documentation in this repository.
+   "You" means any individual or legal entity exercising permissions granted by this License.
+   "Commercial Use" means use of the Software or a Modified Version where You or a third party charges a fee (including license fees, subscription, hosting, support, resale, marketplace listing, or as part of a paid product or service). Pure internal use inside a company without external sale is NOT considered Commercial Use.
+   "Public Fork" means a forked repository that is publicly accessible (not private) on a widely used source hosting platform (e.g., GitHub, GitLab).
+
+2. License Grant
+   Subject to the terms below, You are granted a worldwide, royalty-free, non-exclusive, revocable license to:
+   (a) Use and modify the Software for personal, educational, research, evaluation, or internal company purposes;
+   (b) Distribute unmodified copies of the Software, provided this License file is included; and
+   (c) Create and distribute Modified Versions ONLY if the forked code is kept in a Public Fork under the same License.
+
+3. Restrictions
+   You MUST NOT:
+   (a) Use the Software or a Modified Version for Commercial Use; 
+   (b) Offer the Software itself for sale, sublicense, or paid hosting; 
+   (c) Distribute a Modified Version from a private or access-restricted repository;
+   (d) Remove or obscure copyright, author, or license notices; 
+   (e) Use any project name, logo, or marks in a way that suggests endorsement without permission.
+
+4. Clarifications
+   (a) Internal company use (including in production) without charging third parties for the Software itself is permitted.
+   (b) You may build internal tools on top of the Software as long as they are not sold as a product or service.
+   (c) You may NOT bundle the Software in a paid SaaS, paid desktop app, or paid extension.
+   (d) Managed hosting that charges a fee specifically for access to this Software is Commercial Use.
+
+5. Contributions
+   Unless stated otherwise, any Contribution intentionally submitted for inclusion shall be licensed under this same License without additional terms. Do not submit Contributions if You cannot accept this.
+
+6. No Warranty
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. YOU ASSUME ALL RISKS ASSOCIATED WITH ITS USE.
+
+7. Limitation of Liability
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+8. Termination
+   This License terminates automatically if You breach its terms. Upon termination You must cease use and distribution of the Software and any Modified Versions. Sections 6 and 7 survive termination.
+
+9. License Changes
+   Future versions of this project may adopt a different license. This version does not grant rights to any future licensing terms.
+
+10. Non-Open Source Notice
+   This License is source-available and non-commercial. It is NOT an OSI-approved open source license. If You need commercial licensing, contact the author to discuss terms.
+
+11. Acknowledgment
+   By using, copying, modifying, or distributing the Software, You acknowledge that You have read, understood, and agree to be bound by this License.
+
+END OF TERMS

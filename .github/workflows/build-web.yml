@@ -1,0 +1,155 @@
+name: Build Expo + Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_pages:
+        description: "Set to 'true' to deploy to GitHub Pages"
+        required: false
+        default: 'false'
+
+concurrency:
+  group: build-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.decision.outputs.should_deploy }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Expo Web Export
+        env:
+          EXPO_NO_TELEMETRY: '1'
+          EXPO_NO_SW: '1'
+        run: npx expo export -p web --output-dir dist
+
+      - name: Post-export adjustments
+        run: |
+          echo "--- Listing dist root ---"
+          ls -1 dist || true
+          # Add .nojekyll to prevent GitHub Pages from ignoring potential underscored paths
+          touch dist/.nojekyll
+          # Provide favicon files if not already present
+          if [ -f assets/favicon.png ]; then
+            cp assets/favicon.png dist/favicon.png || true
+            cp assets/favicon.png dist/favicon.ico || true
+          fi
+          # Remove any existing <base> tag (we rely strictly on relative paths to avoid root lookups)
+          if [ -f dist/index.html ]; then
+            sed -i 's#<base[^>]*>##g' dist/index.html || true
+          fi
+          # Rewrite leading /assets references in index.html
+          if [ -f dist/index.html ]; then
+            sed -i 's#src="/assets/#src="assets/#g; s#href="/assets/#href="assets/#g' dist/index.html || true
+            sed -i 's#src="/_expo/#src="./_expo/#g' dist/index.html || true
+            sed -i "s#src='/_expo/#src='./_expo/#g" dist/index.html || true
+          fi
+          # Rewrite occurrences inside JS bundles (both double and single quoted)
+          if ls dist/*.js > /dev/null 2>&1; then
+            for f in dist/*.js; do
+              sed -i 's#"/assets/#"assets/#g' "$f" || true
+              sed -i "s#'/assets/#'assets/#g" "$f" || true
+              sed -i 's#"/_expo/#"./_expo/#g' "$f" || true
+              sed -i "s#'/_expo/#'./_expo/#g" "$f" || true
+            done
+          fi
+          # Rewrite url(/assets/) in CSS if any
+          if ls dist/*.css > /dev/null 2>&1; then
+            for f in dist/*.css; do
+              sed -i 's#url(/assets/#url(assets/#g' "$f" || true
+            done
+          fi
+          # Provide fonts at the exact path expected by @expo/vector-icons (mirroring node_modules tree under assets)
+          ICON_SRC_DIR="node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts"
+          if [ -d "$ICON_SRC_DIR" ]; then
+            DEST_DIR="dist/assets/node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts"
+            mkdir -p "$DEST_DIR"
+            cp -v "$ICON_SRC_DIR"/*.ttf "$DEST_DIR"/ 2>/dev/null || true
+          fi
+          echo "Checking for _expo directory in dist (should exist):"
+          find dist -maxdepth 3 -type d -name '_expo' -print || echo "_expo dir not found"
+          echo "Verify script tag references to _expo (non-fatal if none):"
+          if [ -f dist/index.html ]; then
+            set +e
+            grep -F "_expo/static/js/web/" dist/index.html || echo "(no explicit _expo script references found)"
+            set -e
+            # Assert there are no remaining absolute /_expo references which would break on Pages
+            if grep -F 'src="/_expo/' dist/index.html > /dev/null 2>&1; then
+              echo "ERROR: Found absolute /_expo path in index.html after rewrite:" >&2
+              grep -F 'src="/_expo/' dist/index.html || true
+              # Do NOT fail build automatically; just warn for now
+              echo "WARNING_ONLY=1" >> $GITHUB_ENV
+            fi
+          else
+            echo "WARNING: dist/index.html not found for verification" >&2
+          fi
+          echo "Font files now in mirrored path (if any):" || true
+          ls dist/assets/node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts 2>/dev/null || echo "(none)"
+          echo "--- Final dist root after adjustments ---"
+          ls -1 dist || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+          if-no-files-found: error
+
+      - name: Decide deploy
+        id: decision
+        run: |
+          DEPLOY_INPUT="${{ github.event.inputs.deploy_pages }}"
+          DEPLOY_VAR="${{ vars.DEPLOY_PAGES }}"
+          if [ "${DEPLOY_INPUT}" = "true" ] || [ "${DEPLOY_VAR}" = "true" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "Will deploy to Pages.";
+          else
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "Skipping Pages deployment.";
+          fi
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.should_deploy == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

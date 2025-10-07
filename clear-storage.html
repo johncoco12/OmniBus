@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear PioneersExplorer Storage</title>
+</head>
+<body>
+    <h1>Clear PioneersExplorer Storage</h1>
+    <button onclick="clearStorage()">Clear All Stored Data</button>
+    <pre id="output"></pre>
+
+    <script>
+        async function clearStorage() {
+            const output = document.getElementById('output');
+            output.textContent = 'Clearing storage...\n';
+
+            // Clear AsyncStorage (localStorage)
+            const keys = Object.keys(localStorage);
+            output.textContent += `Found ${keys.length} keys in localStorage\n`;
+
+            for (const key of keys) {
+                output.textContent += `Removing: ${key}\n`;
+                localStorage.removeItem(key);
+            }
+
+            // Clear IndexedDB
+            const databases = await indexedDB.databases();
+            output.textContent += `\nFound ${databases.length} IndexedDB databases\n`;
+
+            for (const db of databases) {
+                output.textContent += `Deleting database: ${db.name}\n`;
+                indexedDB.deleteDatabase(db.name);
+            }
+
+            output.textContent += '\n✓ Storage cleared!\n';
+            output.textContent += '\nNow reload your app: http://localhost:8081\n';
+        }
+    </script>
+</body>
+</html>

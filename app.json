@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "OmniBus",
+    "slug": "OmniBus",
+    "version": "1.0.0",
+    "platforms": ["web"],
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "build": {
+        "publicPath": "."
+      }
+    }
+  }
+}

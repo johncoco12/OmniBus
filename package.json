@@ -1,0 +1,36 @@
+{
+  "name": "pioneersexplorer",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@azure/service-bus": "^7.9.5",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@stomp/stompjs": "^7.2.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.1",
+    "expo": "~54.0.12",
+    "expo-status-bar": "~3.0.8",
+    "process": "^0.11.10",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.4",
+    "react-native-web": "^0.21.0",
+    "reflect-metadata": "^0.2.2",
+    "stream-browserify": "^3.0.0",
+    "tslib": "^2.8.1",
+    "tsyringe": "^4.10.0",
+    "util": "^0.12.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}

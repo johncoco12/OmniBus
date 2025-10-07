@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: pioneersexplorer-rabbitmq
+    ports:
+      # AMQP port (different from Azure SB)
+      - "5673:5672"
+      # Management UI
+      - "15672:15672"
+      # Web STOMP
+      - "15674:15674"
+      # STOMP
+      - "61613:61613"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq-plugins.conf:/etc/rabbitmq/enabled_plugins
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: pioneersexplorer-azurite
+    ports:
+      # Blob service
+      - "10000:10000"
+      # Queue service
+      - "10001:10001"
+      # Table service
+      - "10002:10002"
+    volumes:
+      - azurite_data:/data
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --loose
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "10000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: pioneersexplorer-sql
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong@Pass123"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sql_data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStrong@Pass123" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  azure-servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    container_name: pioneersexplorer-servicebus-emulator
+    ports:
+      - "5672:5672"   # AMQP
+      - "10749:10749" # Management API
+    volumes:
+      - ./servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: sql-server
+      MSSQL_SA_PASSWORD: "YourStrong@Pass123"
+    depends_on:
+      sql-server:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  rabbitmq_data:
+    driver: local
+  azurite_data:
+    driver: local
+  sql_data:
+    driver: local

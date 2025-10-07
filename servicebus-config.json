@@ -1,0 +1,47 @@
+{
+  "UserConfig": {
+    "Namespaces": [
+      {
+        "Name": "sbemulatorns",
+        "Queues": [
+          {
+            "Name": "test-queue",
+            "Properties": {
+              "MaxDeliveryCount": 10,
+              "LockDuration": "PT1M",
+              "RequiresSession": false
+            }
+          },
+          {
+            "Name": "orders",
+            "Properties": {
+              "MaxDeliveryCount": 10,
+              "LockDuration": "PT1M",
+              "RequiresSession": false
+            }
+          },
+          {
+            "Name": "billing",
+            "Properties": {
+              "MaxDeliveryCount": 10,
+              "LockDuration": "PT1M",
+              "RequiresSession": false
+            }
+          },
+          {
+            "Name": "invoices",
+            "Properties": {
+              "MaxDeliveryCount": 10,
+              "LockDuration": "PT1M",
+              "RequiresSession": false
+            }
+          }
+        ],
+        "Topics": []
+      }
+    ],
+    "Logging": {
+      "Type": "Console"
+    }
+  }
+}
