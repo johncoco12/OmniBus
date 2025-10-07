@@ -16,7 +16,7 @@ Simple web explorer for message brokers. RabbitMQ works today. Azure Service Bus
 ---
 <div align="center">
 
-<img src="https://imgur.com/fZ7QhZl.png" alt="OmniBus overview interface showing queue list, selected queue details, and message viewer panel" width="1000" />
+<img src="https://imgur.com/WvjLBMQ.png" alt="OmniBus overview interface showing queue list, selected queue details, and message viewer panel" width="1000" />
 
 <em>OmniBus overview screen (alpha).</em>
 
