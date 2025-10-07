@@ -9,9 +9,10 @@ interface MoveMessageModalProps {
   onMove: (targetQueue: string) => void;
   connectionId: string;
   sourceQueue: string;
+  messageCount?: number;
 }
 
-export default function MoveMessageModal({ visible, onClose, onMove, connectionId, sourceQueue }: MoveMessageModalProps) {
+export default function MoveMessageModal({ visible, onClose, onMove, connectionId, sourceQueue, messageCount = 1 }: MoveMessageModalProps) {
   const [queues, setQueues] = useState<string[]>([]);
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
 
@@ -49,7 +50,9 @@ export default function MoveMessageModal({ visible, onClose, onMove, connectionI
       <View style={styles.overlay}>
         <View style={styles.modal}>
           <View style={styles.header}>
-            <Text style={styles.title}>Move Message</Text>
+            <Text style={styles.title}>
+              Move {messageCount > 1 ? `${messageCount} Messages` : 'Message'}
+            </Text>
             <TouchableOpacity onPress={onClose}>
               <MaterialIcons name="close" size={20} color="#cccccc" />
             </TouchableOpacity>
@@ -57,7 +60,7 @@ export default function MoveMessageModal({ visible, onClose, onMove, connectionI
 
           <View style={styles.content}>
             <Text style={styles.description}>
-              Select target queue to move message from <Text style={styles.highlight}>{sourceQueue}</Text>
+              Select target queue to move {messageCount > 1 ? `${messageCount} messages` : 'message'} from <Text style={styles.highlight}>{sourceQueue}</Text>
             </Text>
 
             <ScrollView style={styles.queueList}>

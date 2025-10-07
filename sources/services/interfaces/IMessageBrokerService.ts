@@ -100,6 +100,11 @@ export interface IMessageBrokerService {
   deleteMessage(queueName: string, messageId: string): Promise<void>;
 
   /**
+   * Bulk delete messages from a queue (optional - for better performance)
+   */
+  bulkDeleteMessages?(queueName: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }>;
+
+  /**
    * Delete a message from a topic subscription (optional - Azure Service Bus)
    */
   deleteTopicMessage?(topicName: string, subscriptionName: string, messageId: string): Promise<void>;
@@ -108,6 +113,21 @@ export interface IMessageBrokerService {
    * Move a message to another queue
    */
   moveMessage(sourceQueue: string, targetQueue: string, messageId: string): Promise<void>;
+
+  /**
+   * Bulk move messages to another queue (optional - for better performance)
+   */
+  bulkMoveMessages?(sourceQueue: string, targetQueue: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }>;
+
+  /**
+   * Import messages from JSON data (optional)
+   */
+  importMessages?(queueName: string, messages: any[]): Promise<{ successCount: number; failCount: number }>;
+
+  /**
+   * Export messages by IDs (optional)
+   */
+  exportMessages?(queueName: string, messageIds: string[]): Promise<any[]>;
 
   /**
    * Get the connection info

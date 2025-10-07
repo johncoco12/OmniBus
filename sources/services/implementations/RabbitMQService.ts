@@ -363,6 +363,335 @@ export class RabbitMQService implements IMessageBrokerService {
     }
   }
 
+  async bulkDeleteMessages(queueName: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }> {
+    if (!this.connection || !this.managementApiUrl) {
+      throw new Error('Not connected to RabbitMQ');
+    }
+
+    if (messageIds.length === 0) {
+      return { successCount: 0, failCount: 0 };
+    }
+
+    // Ensure STOMP connection for republishing
+    await this.ensureConnected();
+
+    try {
+      const url = new URL(this.managementApiUrl);
+      const username = url.username || 'guest';
+      const password = url.password || 'guest';
+      const baseUrl = `${url.protocol}//${url.host}`;
+      const vhost = url.searchParams.get('vhost') || '/';
+
+      // Get all messages from the queue in one go
+      const response = await fetch(
+        `${baseUrl}/api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(queueName)}/get`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            count: 1000,
+            ackmode: 'ack_requeue_false',
+            encoding: 'auto',
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch messages: ${response.statusText}`);
+      }
+
+      const messages = await response.json();
+      const messageIdSet = new Set(messageIds);
+
+      console.log(`Bulk deleting ${messageIds.length} messages from ${queueName}`);
+      console.log(`Found ${messages.length} messages in queue`);
+
+      // Republish all messages except the ones to delete
+      const publishPromises: Promise<void>[] = [];
+      let successCount = 0;
+
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        const msgId = msg.properties?.message_id || `${i}`;
+
+        if (messageIdSet.has(msgId)) {
+          console.log(`✗ Deleting message ${msgId}`);
+          successCount++;
+        } else {
+          // Republish message back to queue
+          if (this.stompClient?.connected) {
+            const publishPromise = new Promise<void>((resolve) => {
+              const filteredHeaders = msg.properties?.headers ?
+                Object.entries(msg.properties.headers).reduce((acc, [key, value]) => {
+                  const lowerKey = key.toLowerCase();
+                  if (!['content-length', 'content-type', 'message-id'].includes(lowerKey)) {
+                    acc[key] = value;
+                  }
+                  return acc;
+                }, {} as Record<string, any>) : {};
+
+              const headers: Record<string, string> = {
+                ...filteredHeaders,
+                'content-type': msg.properties?.content_type || 'application/json',
+              };
+
+              if (msg.properties?.message_id) {
+                headers['message-id'] = msg.properties.message_id;
+              }
+
+              this.stompClient!.publish({
+                destination: `/queue/${queueName}`,
+                body: msg.payload,
+                headers: headers,
+              });
+              setTimeout(() => resolve(), 100);
+            });
+
+            publishPromises.push(publishPromise);
+          }
+        }
+      }
+
+      // Wait for all publishes to complete
+      await Promise.all(publishPromises);
+
+      const failCount = messageIds.length - successCount;
+      console.log(`✓ ${publishPromises.length} messages requeued`);
+      console.log(`✓ Deleted ${successCount} messages, ${failCount} not found`);
+
+      return { successCount, failCount };
+    } catch (error) {
+      console.error('Error bulk deleting messages:', error);
+      throw error;
+    }
+  }
+
+  async bulkMoveMessages(sourceQueue: string, targetQueue: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }> {
+    if (!this.connection || !this.managementApiUrl) {
+      throw new Error('Not connected to RabbitMQ');
+    }
+
+    if (messageIds.length === 0) {
+      return { successCount: 0, failCount: 0 };
+    }
+
+    // Ensure STOMP connection
+    await this.ensureConnected();
+
+    try {
+      const url = new URL(this.managementApiUrl);
+      const username = url.username || 'guest';
+      const password = url.password || 'guest';
+      const baseUrl = `${url.protocol}//${url.host}`;
+      const vhost = url.searchParams.get('vhost') || '/';
+
+      // Get all messages from source queue
+      const response = await fetch(
+        `${baseUrl}/api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(sourceQueue)}/get`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            count: 1000,
+            ackmode: 'ack_requeue_false',
+            encoding: 'auto',
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch messages: ${response.statusText}`);
+      }
+
+      const messages = await response.json();
+      const messageIdSet = new Set(messageIds);
+
+      console.log(`Bulk moving ${messageIds.length} messages from ${sourceQueue} to ${targetQueue}`);
+      console.log(`Found ${messages.length} messages in source queue`);
+
+      const requeuePromises: Promise<void>[] = [];
+      const movePromises: Promise<void>[] = [];
+      let successCount = 0;
+
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        const msgId = msg.properties?.message_id || `${i}`;
+
+        if (messageIdSet.has(msgId)) {
+          // Move this message to target queue
+          console.log(`→ Moving message ${msgId} to ${targetQueue}`);
+          successCount++;
+
+          if (this.stompClient?.connected) {
+            const movePromise = new Promise<void>((resolve) => {
+              const filteredHeaders = msg.properties?.headers ?
+                Object.entries(msg.properties.headers).reduce((acc, [key, value]) => {
+                  const lowerKey = key.toLowerCase();
+                  if (!['content-length', 'content-type', 'message-id'].includes(lowerKey)) {
+                    acc[key] = value;
+                  }
+                  return acc;
+                }, {} as Record<string, any>) : {};
+
+              const headers: Record<string, string> = {
+                ...filteredHeaders,
+                'content-type': msg.properties?.content_type || 'application/json',
+              };
+
+              if (msg.properties?.message_id) {
+                headers['message-id'] = msg.properties.message_id;
+              }
+
+              this.stompClient!.publish({
+                destination: `/queue/${targetQueue}`,
+                body: msg.payload,
+                headers: headers,
+              });
+              setTimeout(() => resolve(), 100);
+            });
+
+            movePromises.push(movePromise);
+          }
+        } else {
+          // Requeue this message back to source queue
+          if (this.stompClient?.connected) {
+            const requeuePromise = new Promise<void>((resolve) => {
+              const filteredHeaders = msg.properties?.headers ?
+                Object.entries(msg.properties.headers).reduce((acc, [key, value]) => {
+                  const lowerKey = key.toLowerCase();
+                  if (!['content-length', 'content-type', 'message-id'].includes(lowerKey)) {
+                    acc[key] = value;
+                  }
+                  return acc;
+                }, {} as Record<string, any>) : {};
+
+              const headers: Record<string, string> = {
+                ...filteredHeaders,
+                'content-type': msg.properties?.content_type || 'application/json',
+              };
+
+              if (msg.properties?.message_id) {
+                headers['message-id'] = msg.properties.message_id;
+              }
+
+              this.stompClient!.publish({
+                destination: `/queue/${sourceQueue}`,
+                body: msg.payload,
+                headers: headers,
+              });
+              setTimeout(() => resolve(), 100);
+            });
+
+            requeuePromises.push(requeuePromise);
+          }
+        }
+      }
+
+      // Wait for all operations to complete
+      await Promise.all([...requeuePromises, ...movePromises]);
+
+      const failCount = messageIds.length - successCount;
+      console.log(`✓ ${requeuePromises.length} messages requeued to ${sourceQueue}`);
+      console.log(`✓ ${movePromises.length} messages moved to ${targetQueue}`);
+      console.log(`✓ Moved ${successCount} messages, ${failCount} not found`);
+
+      return { successCount, failCount };
+    } catch (error) {
+      console.error('Error bulk moving messages:', error);
+      throw error;
+    }
+  }
+
+  async importMessages(queueName: string, messages: any[]): Promise<{ successCount: number; failCount: number }> {
+    if (!this.connection) {
+      throw new Error('Not connected to RabbitMQ');
+    }
+
+    if (messages.length === 0) {
+      return { successCount: 0, failCount: 0 };
+    }
+
+    // Ensure STOMP connection
+    await this.ensureConnected();
+
+    try {
+      console.log(`Importing ${messages.length} messages to ${queueName}`);
+
+      const sendPromises: Promise<void>[] = [];
+      let successCount = 0;
+
+      for (const message of messages) {
+        try {
+          const promise = new Promise<void>((resolve, reject) => {
+            if (!this.stompClient?.connected) {
+              reject(new Error('STOMP client not connected'));
+              return;
+            }
+
+            this.stompClient.publish({
+              destination: `/queue/${queueName}`,
+              body: JSON.stringify(message),
+              headers: {
+                'content-type': 'application/json',
+              },
+            });
+
+            successCount++;
+            setTimeout(() => resolve(), 50);
+          });
+
+          sendPromises.push(promise);
+        } catch (error) {
+          console.error('Failed to import message:', error);
+        }
+      }
+
+      await Promise.all(sendPromises);
+
+      const failCount = messages.length - successCount;
+      console.log(`✓ Imported ${successCount} messages, ${failCount} failed`);
+
+      return { successCount, failCount };
+    } catch (error) {
+      console.error('Error importing messages:', error);
+      throw error;
+    }
+  }
+
+  async exportMessages(queueName: string, messageIds: string[]): Promise<any[]> {
+    if (!this.connection || !this.managementApiUrl) {
+      throw new Error('Not connected to RabbitMQ');
+    }
+
+    if (messageIds.length === 0) {
+      return [];
+    }
+
+    try {
+      // Fetch current messages from queue
+      const allMessages = await this.getMessages(queueName);
+
+      // Filter by message IDs
+      const messageIdSet = new Set(messageIds);
+      const exportedMessages = allMessages
+        .filter(msg => messageIdSet.has(msg.id))
+        .map(msg => msg.body);
+
+      console.log(`✓ Exported ${exportedMessages.length} messages from ${queueName}`);
+
+      return exportedMessages;
+    } catch (error) {
+      console.error('Error exporting messages:', error);
+      throw error;
+    }
+  }
+
   async moveMessage(
     sourceQueue: string,
     targetQueue: string,
