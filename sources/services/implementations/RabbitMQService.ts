@@ -692,161 +692,156 @@ export class RabbitMQService implements IMessageBrokerService {
     }
   }
 
+  private generateInternalId(msg: any, index: number): string {
+    // Prefer RabbitMQ message_id, fallback to hash of payload and index
+    const base = msg.properties?.message_id || '';
+    const payload = typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
+    let hash = 0;
+    for (let i = 0; i < payload.length; i++) {
+      hash = (hash * 31 + payload.charCodeAt(i)) >>> 0;
+    }
+    return `${base}#${hash.toString(16)}:${index}`;
+  }
+
+  private filterRepublishHeaders(headers?: Record<string, any>): Record<string, string> {
+    if (!headers) return {};
+    const disallowed = new Set(['content-length','content-type','message-id','receipt','subscription','destination']);
+    const result: Record<string,string> = {};
+    Object.entries(headers).forEach(([k,v]) => {
+      const lk = k.toLowerCase();
+      if (!disallowed.has(lk) && v != null) {
+        result[k] = String(v);
+      }
+    });
+    return result;
+  }
+
+  private async publishWithReceipt(destination: string, body: string, headers: Record<string,string>, timeoutMs = 5000, retries = 2): Promise<void> {
+    if (!this.stompClient?.connected) throw new Error('STOMP client not connected');
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const receiptId = `rcpt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const publishHeaders = { ...headers, receipt: receiptId };
+
+      const result = await new Promise<{ ok: boolean; error?: any }>((resolve) => {
+        const timer = setTimeout(() => resolve({ ok: false, error: new Error('Receipt timeout') }), timeoutMs);
+        try {
+          this.stompClient!.watchForReceipt(receiptId, () => {
+            clearTimeout(timer);
+            resolve({ ok: true });
+          });
+          this.stompClient!.publish({ destination, body, headers: publishHeaders });
+        } catch (err) {
+          clearTimeout(timer);
+          resolve({ ok: false, error: err });
+        }
+      });
+
+      if (result.ok) return; // success
+      console.warn(`Publish attempt ${attempt + 1} failed for ${destination}:`, result.error);
+      if (attempt === retries) throw result.error || new Error('Failed to publish');
+      await new Promise(r => setTimeout(r, 300 * (attempt + 1)));
+    }
+  }
+
+
   async moveMessage(
     sourceQueue: string,
     targetQueue: string,
     messageId: string
   ): Promise<void> {
-    // Workaround: Consume messages from source queue until we find the one to move
-    // Then publish it to target queue and requeue all other messages
     if (!this.connection || !this.managementApiUrl) {
       throw new Error('Not connected to RabbitMQ');
     }
-
-    // Ensure STOMP connection for moving
     await this.ensureConnected();
 
-    try {
-      const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
-      const baseUrl = `${url.protocol}//${url.host}`;
-      const vhost = url.searchParams.get('vhost') || '/';
+    const url = new URL(this.managementApiUrl);
+    const username = url.username || 'guest';
+    const password = url.password || 'guest';
+    const baseUrl = `${url.protocol}//${url.host}`;
+    const vhost = url.searchParams.get('vhost') || '/';
 
-      // Get all messages from the source queue
-      const response = await fetch(
-        `${baseUrl}/api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(sourceQueue)}/get`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            count: 1000, // Get all messages (up to 1000)
-            ackmode: 'ack_requeue_false', // Acknowledge without requeue - consume messages
-            encoding: 'auto',
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch messages: ${response.statusText}`);
+    // 1. Fetch messages (consume) from source queue
+    const response = await fetch(
+      `${baseUrl}/api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(sourceQueue)}/get`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          count: 1000,
+          ackmode: 'ack_requeue_false', // consume
+          encoding: 'auto',
+        }),
       }
-
-      const messages = await response.json();
-      let messageMoved = false;
-
-      console.log(`Moving message ${messageId} from ${sourceQueue} to ${targetQueue}`);
-      console.log(`Found ${messages.length} messages in source queue`);
-
-      // Process all messages
-      const publishPromises: Promise<void>[] = [];
-
-      for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        const msgId = msg.properties?.message_id || `${i}`;
-
-        console.log(`Processing message ${i}: ID=${msgId}, match=${msgId === messageId}`);
-
-        if (msgId === messageId) {
-          // Move this message to target queue
-          if (this.stompClient?.connected) {
-            console.log(`✓ Moving message to ${targetQueue}`);
-
-            const publishPromise = new Promise<void>((resolve) => {
-              // Filter out headers that should not be copied (STOMP will set these)
-              const filteredHeaders = msg.properties?.headers ?
-                Object.entries(msg.properties.headers).reduce((acc, [key, value]) => {
-                  const lowerKey = key.toLowerCase();
-                  if (!['content-length', 'content-type', 'message-id', 'receipt'].includes(lowerKey)) {
-                    acc[key] = value;
-                  }
-                  return acc;
-                }, {} as Record<string, any>) : {};
-
-              const headers: Record<string, string> = {
-                ...filteredHeaders,
-                'content-type': msg.properties?.content_type || 'application/json',
-              };
-
-              // Only add message-id if it exists
-              if (msg.properties?.message_id) {
-                headers['message-id'] = msg.properties.message_id;
-              }
-
-              this.stompClient!.publish({
-                destination: `/queue/${targetQueue}`,
-                body: msg.payload,
-                headers: headers,
-              });
-
-              // Wait to ensure message is sent
-              setTimeout(() => resolve(), 200);
-            });
-
-            publishPromises.push(publishPromise);
-            messageMoved = true;
-          } else {
-            throw new Error('STOMP client not connected');
-          }
-        } else {
-          // Republish message back to source queue
-          if (this.stompClient?.connected) {
-            console.log(`↻ Requeuing message ${msgId} to ${sourceQueue}`);
-
-            const publishPromise = new Promise<void>((resolve) => {
-              // Filter out headers that should not be copied (STOMP will set these)
-              const filteredHeaders = msg.properties?.headers ?
-                Object.entries(msg.properties.headers).reduce((acc, [key, value]) => {
-                  const lowerKey = key.toLowerCase();
-                  if (!['content-length', 'content-type', 'message-id', 'receipt'].includes(lowerKey)) {
-                    acc[key] = value;
-                  }
-                  return acc;
-                }, {} as Record<string, any>) : {};
-
-              const headers: Record<string, string> = {
-                ...filteredHeaders,
-                'content-type': msg.properties?.content_type || 'application/json',
-              };
-
-              // Only add message-id if it exists
-              if (msg.properties?.message_id) {
-                headers['message-id'] = msg.properties.message_id;
-              }
-
-              this.stompClient!.publish({
-                destination: `/queue/${sourceQueue}`,
-                body: msg.payload,
-                headers: headers,
-              });
-
-              // Wait to ensure message is sent
-              setTimeout(() => resolve(), 200);
-            });
-
-            publishPromises.push(publishPromise);
-          }
-        }
-      }
-
-      if (!messageMoved) {
-        throw new Error(`Message ${messageId} not found in queue ${sourceQueue}`);
-      }
-
-      // Wait for all publishes to complete
-      await Promise.all(publishPromises);
-
-      // Add extra delay to ensure all messages are fully sent
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      console.log(`✓ All messages processed. ${publishPromises.length} messages republished.`);
-      console.log(`✓ Message ${messageId} moved from ${sourceQueue} to ${targetQueue}`);
-    } catch (error) {
-      console.error('✗ Error moving message:', error);
-      throw error;
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch messages: ${response.statusText}`);
     }
+    const rawMessages = await response.json();
+
+    if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+      throw new Error('No messages available in source queue');
+    }
+
+    // 2. Build internal records with safe IDs
+    interface TempMsg { raw: any; internalId: string; originalId: string; isTarget: boolean; }
+    const tempMessages: TempMsg[] = rawMessages.map((m: any, idx: number) => {
+      const originalId = m.properties?.message_id || `${idx}`;
+      return {
+        raw: m,
+        originalId,
+        internalId: this.generateInternalId(m, idx),
+        isTarget: originalId === messageId,
+      };
+    });
+
+    const targets = tempMessages.filter(m => m.isTarget);
+    if (targets.length === 0) {
+      throw new Error(`Message ${messageId} not found in queue ${sourceQueue}`);
+    }
+    if (targets.length > 1) {
+      console.warn(`Multiple messages (${targets.length}) share message_id='${messageId}'. Moving the first occurrence only.`);
+    }
+    const target = targets[0];
+
+    // 3. Republish non-target messages back to source with confirmation
+    const nonTargets = tempMessages.filter(m => !m.isTarget);
+    console.log(`Requeueing ${nonTargets.length} messages back to ${sourceQueue}`);
+
+    for (const m of nonTargets) {
+      const filtered = this.filterRepublishHeaders(m.raw.properties?.headers);
+      const headers: Record<string,string> = {
+        ...filtered,
+        'content-type': m.raw.properties?.content_type || 'application/json',
+      };
+      if (m.raw.properties?.message_id) {
+        headers['message-id'] = m.raw.properties.message_id;
+      }
+      try {
+        await this.publishWithReceipt(`/queue/${sourceQueue}`, m.raw.payload, headers);
+      } catch (err) {
+        console.error('Failed to requeue message, aborting to prevent loss. Partial state may exist.', err);
+        throw err;
+      }
+    }
+
+    // 4. Publish target message to destination with confirmation
+    console.log(`Publishing target message ${target.originalId} to ${targetQueue}`);
+    const tFiltered = this.filterRepublishHeaders(target.raw.properties?.headers);
+    const tHeaders: Record<string,string> = {
+      ...tFiltered,
+      'content-type': target.raw.properties?.content_type || 'application/json',
+    };
+    if (target.raw.properties?.message_id) {
+      tHeaders['message-id'] = target.raw.properties.message_id;
+    }
+
+    await this.publishWithReceipt(`/queue/${targetQueue}`, target.raw.payload, tHeaders);
+
+    console.log(`✓ Robust move complete: ${target.originalId} from ${sourceQueue} → ${targetQueue}`);
   }
 
   getConnection(): IConnection | null {
