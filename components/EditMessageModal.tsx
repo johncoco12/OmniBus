@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -25,6 +25,7 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
   const textChangeTimeoutRef = useRef<any>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
 
   useEffect(() => {
     if (message && visible) {
@@ -35,8 +36,15 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
       setError(null);
       setIsValid(true);
       updateStats(formatted);
+      
+      if (textInputRef.current && textInputRef.current.focus) {
+        // Ensure the text input gets focus when needed
+        setTimeout(() => {
+          textInputRef.current.focus();
+        }, 0);
+      }
     }
-  }, [message, visible]);
+  }, [message, visible, indentSize]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -69,18 +77,23 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
     }
   }, [visible, historyIndex, history, showSearch]);
 
-  const updateStats = (text: string) => {
-    setLineCount(text.split('\n').length);
+  const updateStats = useCallback((text: string) => {
+    // Calculate line count ensuring empty string results in 1 line
+    const lines = text ? text.split('\n') : [''];
+    setLineCount(lines.length);
     setCharCount(text.length);
 
     // Update search matches
     if (searchText) {
       const matches = text.toLowerCase().split(searchText.toLowerCase()).length - 1;
       setSearchMatches(matches);
+      if (matches > 0 && currentMatch > matches) {
+        setCurrentMatch(1);
+      }
     }
-  };
+  }, [searchText, currentMatch]);
 
-  const handleTextChange = (text: string) => {
+  const handleTextChange = useCallback((text: string) => {
     setMessageBody(text);
     updateStats(text);
 
@@ -101,7 +114,7 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
       setError(err.message);
       setIsValid(false);
     }
-  };
+  }, []);
 
   const handleFormat = () => {
     try {
@@ -192,7 +205,7 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
     setSearchText('');
   };
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (!searchText) return;
 
     const text = messageBody.toLowerCase();
@@ -202,20 +215,51 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
 
     if (matches > 0) {
       setCurrentMatch(1);
+      
+      // Position to the first match
+      if (textInputRef.current) {
+        navigateToMatch(1);
+      }
     }
-  };
+  }, [searchText, messageBody]);
 
-  const handleNextMatch = () => {
+  const handleNextMatch = useCallback(() => {
     if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev >= searchMatches ? 1 : prev + 1));
+      const nextMatch = currentMatch >= searchMatches ? 1 : currentMatch + 1;
+      setCurrentMatch(nextMatch);
+      navigateToMatch(nextMatch);
     }
-  };
+  }, [searchMatches, currentMatch]);
 
-  const handlePrevMatch = () => {
+  const handlePrevMatch = useCallback(() => {
     if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev <= 1 ? searchMatches : prev - 1));
+      const prevMatch = currentMatch <= 1 ? searchMatches : currentMatch - 1;
+      setCurrentMatch(prevMatch);
+      navigateToMatch(prevMatch);
     }
-  };
+  }, [searchMatches, currentMatch]);
+  
+  // Function to navigate to a specific match
+  const navigateToMatch = useCallback((matchIndex: number) => {
+    if (!textInputRef.current) return;
+    
+    // Find position of the match
+    const text = messageBody.toLowerCase();
+    const searchLower = searchText.toLowerCase();
+    
+    let position = -1;
+    
+    // Find the nth occurrence
+    for (let i = 0; i < matchIndex; i++) {
+      position = text.indexOf(searchLower, position + 1);
+      if (position === -1) break;
+    }
+    
+    if (position >= 0 && textInputRef.current && textInputRef.current.setSelection) {
+      // Select the text in the editor
+      textInputRef.current.setSelection(position, position + searchText.length);
+    }
+  }, [messageBody, searchText]);
 
   const handleEscape = (text: string) => {
     const escaped = JSON.stringify(text);
@@ -251,124 +295,56 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
     return obj;
   };
 
-  const renderSyntaxHighlightedJSON = () => {
-    const parts: React.ReactNode[] = [];
-    let index = 0;
-
-    // Tokenize JSON with regex
-    const tokenRegex = /"(?:[^"\\]|\\.)*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\]:,]/g;
-    let match;
-    let lastIndex = 0;
-
-    while ((match = tokenRegex.exec(messageBody)) !== null) {
-      // Add whitespace/text before this token
-      if (match.index > lastIndex) {
-        parts.push(
-          <Text key={`ws-${index++}`} style={styles.syntaxWhitespace}>
-            {messageBody.substring(lastIndex, match.index)}
-          </Text>
-        );
-      }
-
-      const token = match[0];
-      let style = styles.syntaxDefault;
-
-      if (token === '{' || token === '}' || token === '[' || token === ']') {
-        style = styles.syntaxBracket;
-      } else if (token === ':' || token === ',') {
-        style = styles.syntaxPunctuation;
-      } else if (token.startsWith('"')) {
-        // Check if it's a key (followed by :) or a string value
-        const afterToken = messageBody.substring(match.index + token.length).trim();
-        style = afterToken.startsWith(':') ? styles.syntaxKey : styles.syntaxString;
-      } else if (token === 'true' || token === 'false') {
-        style = styles.syntaxBoolean;
-      } else if (token === 'null') {
-        style = styles.syntaxNull;
-      } else if (!isNaN(Number(token))) {
-        style = styles.syntaxNumber;
-      }
-
-      parts.push(
-        <Text key={`token-${index++}`} style={style}>
-          {token}
+  // Render the editor content
+  const renderEditorContent = useCallback(() => {
+    return (
+      <TextInput
+        ref={textInputRef}
+        style={styles.plainEditor}
+        value={messageBody}
+        onChangeText={handleTextChange}
+        onSelectionChange={(event) => {
+          const { selection } = event.nativeEvent;
+          const textBeforeCursor = messageBody.substring(0, selection.start);
+          const lines = textBeforeCursor.split('\n');
+          const line = lines.length;
+          const column = lines[lines.length - 1].length + 1;
+          setCursorPosition({ line, column });
+        }}
+        placeholder='{"key": "value"}'
+        placeholderTextColor="#858585"
+        multiline
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+      />
+    );
+  }, [messageBody, handleTextChange]);
+  
+  // Display search match indicator
+  const displaySearchIndicator = useCallback(() => {
+    if (!showSearch || !searchText || searchMatches === 0) return null;
+    
+    // Simple indicator for search matches
+    return (
+      <View style={{
+        position: 'absolute',
+        bottom: 10, 
+        right: 10,
+        backgroundColor: 'rgba(14, 99, 156, 0.8)',
+        padding: 6,
+        borderRadius: 4,
+        zIndex: 10,
+      }}>
+        <Text style={{
+          color: '#ffffff',
+          fontSize: 12,
+        }}>
+          {currentMatch} of {searchMatches} matches
         </Text>
-      );
-
-      lastIndex = match.index + token.length;
-    }
-
-    // Add remaining text
-    if (lastIndex < messageBody.length) {
-      parts.push(
-        <Text key={`end-${index++}`} style={styles.syntaxWhitespace}>
-          {messageBody.substring(lastIndex)}
-        </Text>
-      );
-    }
-
-    return parts;
-  };
-
-  const renderSearchHighlights = () => {
-    if (!searchText || !messageBody) return null;
-
-    const parts: React.ReactNode[] = [];
-    const searchLower = searchText.toLowerCase();
-    let currentIndex = 0;
-    let matchCount = 0;
-
-    // Find all matches
-    const matches: { start: number; end: number; isCurrentMatch: boolean }[] = [];
-    let searchIndex = messageBody.toLowerCase().indexOf(searchLower);
-
-    while (searchIndex !== -1) {
-      matchCount++;
-      matches.push({
-        start: searchIndex,
-        end: searchIndex + searchText.length,
-        isCurrentMatch: matchCount === currentMatch,
-      });
-      searchIndex = messageBody.toLowerCase().indexOf(searchLower, searchIndex + 1);
-    }
-
-    // Render text with highlights
-    if (matches.length === 0) return messageBody;
-
-    matches.forEach((match, idx) => {
-      // Add text before the match
-      if (currentIndex < match.start) {
-        parts.push(
-          <Text key={`before-${idx}`} style={styles.searchNormal}>
-            {messageBody.substring(currentIndex, match.start)}
-          </Text>
-        );
-      }
-
-      // Add highlighted match
-      parts.push(
-        <Text
-          key={`match-${idx}`}
-          style={match.isCurrentMatch ? styles.searchCurrentHighlight : styles.searchHighlight}
-        >
-          {messageBody.substring(match.start, match.end)}
-        </Text>
-      );
-
-      currentIndex = match.end;
-    });
-
-    // Add remaining text
-    if (currentIndex < messageBody.length) {
-      parts.push(
-        <Text key="after" style={styles.searchNormal}>
-          {messageBody.substring(currentIndex)}
-        </Text>
-      );
-    }
-
-    return parts;
-  };
+      </View>
+    );
+  }, [showSearch, searchText, searchMatches, currentMatch]);
 
   if (!message) return null;
 
@@ -527,49 +503,19 @@ export default function EditMessageModal({ visible, onClose, onSave, message, qu
               <Text style={styles.statusText}>Lines: {lineCount}</Text>
               <Text style={styles.statusText}>Characters: {charCount}</Text>
               <Text style={styles.statusText}>Size: {message.size} bytes</Text>
+              <Text style={styles.statusText}>Ln {cursorPosition.line}, Col {cursorPosition.column}</Text>
             </View>
           </View>
 
-          {/* Editor */}
+          {/* Editor - Completely Refactored Approach */}
           <View style={styles.editorContainer}>
-            <View style={styles.lineNumbers}>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {Array.from({ length: lineCount }, (_, i) => (
-                  <Text key={i} style={styles.lineNumber}>
-                    {i + 1}
-                  </Text>
-                ))}
-              </ScrollView>
-            </View>
-            <ScrollView style={styles.editorScroll}>
-              {/* Syntax highlighting layer */}
-              <View style={styles.syntaxLayer} pointerEvents="none">
-                <Text style={styles.syntaxText}>
-                  {renderSyntaxHighlightedJSON()}
-                </Text>
-              </View>
-
-              {/* Search highlight layer */}
-              {showSearch && searchText && searchMatches > 0 && (
-                <View style={styles.searchHighlightLayer} pointerEvents="none">
-                  <Text style={styles.searchHighlightText}>
-                    {renderSearchHighlights()}
-                  </Text>
-                </View>
-              )}
-
-              <TextInput
-                ref={textInputRef}
-                style={styles.editor}
-                value={messageBody}
-                onChangeText={handleTextChange}
-                placeholder='{"key": "value"}'
-                placeholderTextColor="#858585"
-                multiline
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-              />
+            <ScrollView 
+              style={styles.editorScroll}
+              contentContainerStyle={{flexGrow: 1}}
+              showsVerticalScrollIndicator={true}
+            >
+              {renderEditorContent()}
+              {displaySearchIndicator()}
             </ScrollView>
           </View>
 
@@ -649,6 +595,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 12,
     elevation: 10,
+  },
+  plainEditor: {
+    flex: 1,
+    color: '#cccccc',
+    backgroundColor: '#1e1e1e',
+    fontSize: 13,
+    fontFamily: 'monospace',
+    padding: 12,
+    lineHeight: 20,
+    minHeight: 400,
+    textAlignVertical: 'top',
   },
   header: {
     flexDirection: 'row',
@@ -807,9 +764,17 @@ const styles = StyleSheet.create({
   },
   editorContainer: {
     flex: 1,
-    flexDirection: 'row',
     backgroundColor: '#1e1e1e',
     minHeight: 400,
+    borderWidth: 1,
+    borderColor: '#3e3e42',
+  },
+  editorScrollContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  editorScroll: {
+    flex: 1,
   },
   lineNumbers: {
     backgroundColor: '#2d2d30',
@@ -818,6 +783,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: '#3e3e42',
     minWidth: 50,
+    display: 'none', // Hide line numbers in unified approach
   },
   lineNumber: {
     color: '#858585',
@@ -825,89 +791,6 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     textAlign: 'right',
     lineHeight: 20,
-  },
-  editorScroll: {
-    flex: 1,
-    position: 'relative',
-  },
-  syntaxLayer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    padding: 12,
-    zIndex: 0,
-  },
-  syntaxText: {
-    fontSize: 13,
-    fontFamily: 'monospace',
-    lineHeight: 20,
-  },
-  syntaxKey: {
-    color: '#9cdcfe',
-  },
-  syntaxString: {
-    color: '#ce9178',
-  },
-  syntaxNumber: {
-    color: '#b5cea8',
-  },
-  syntaxBoolean: {
-    color: '#569cd6',
-  },
-  syntaxNull: {
-    color: '#569cd6',
-  },
-  syntaxBracket: {
-    color: '#ffd700',
-  },
-  syntaxPunctuation: {
-    color: '#cccccc',
-  },
-  syntaxWhitespace: {
-    color: '#cccccc',
-  },
-  syntaxDefault: {
-    color: '#cccccc',
-  },
-  searchHighlightLayer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    padding: 12,
-    zIndex: 1,
-  },
-  searchHighlightText: {
-    fontSize: 13,
-    fontFamily: 'monospace',
-    lineHeight: 20,
-  },
-  searchHighlight: {
-    backgroundColor: 'rgba(255, 215, 0, 0.3)',
-    color: 'transparent',
-    borderRadius: 2,
-  },
-  searchCurrentHighlight: {
-    backgroundColor: 'rgba(255, 140, 0, 0.5)',
-    color: 'transparent',
-    borderRadius: 2,
-    borderWidth: 1,
-    borderColor: '#ff8c00',
-  },
-  searchNormal: {
-    color: 'transparent',
-  },
-  editor: {
-    color: 'transparent',
-    fontSize: 13,
-    fontFamily: 'monospace',
-    padding: 12,
-    lineHeight: 20,
-    minHeight: 400,
-    position: 'relative',
-    zIndex: 2,
-    backgroundColor: 'transparent',
   },
   errorContainer: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, memo, useRef } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -13,6 +13,65 @@ interface ByteData {
   ascii: string;
 }
 
+// Memoized byte component to prevent unnecessary re-renders
+const HexByte = memo(({
+  byteValue,
+  byteIndex,
+  isSelected,
+  onMouseDown,
+  onMouseEnter
+}: {
+  byteValue: number;
+  byteIndex: number;
+  isSelected: boolean;
+  onMouseDown: (idx: number) => void;
+  onMouseEnter: (idx: number) => void;
+}) => {
+  const InteractiveView: any = View;
+  const hex = byteValue.toString(16).padStart(2, '0').toUpperCase();
+
+  return (
+    <InteractiveView
+      onMouseDown={() => onMouseDown(byteIndex)}
+      onMouseEnter={() => onMouseEnter(byteIndex)}
+      style={[styles.byteBox, isSelected && styles.selectedByte]}
+    >
+      <Text style={[styles.hexByteText, isSelected && styles.selectedText]}>
+        {hex}
+      </Text>
+    </InteractiveView>
+  );
+});
+
+const AsciiByte = memo(({
+  byteValue,
+  byteIndex,
+  isSelected,
+  onMouseDown,
+  onMouseEnter
+}: {
+  byteValue: number;
+  byteIndex: number;
+  isSelected: boolean;
+  onMouseDown: (idx: number) => void;
+  onMouseEnter: (idx: number) => void;
+}) => {
+  const InteractiveView: any = View;
+  const ascii = (byteValue >= 32 && byteValue <= 126) ? String.fromCharCode(byteValue) : '.';
+
+  return (
+    <InteractiveView
+      onMouseDown={() => onMouseDown(byteIndex)}
+      onMouseEnter={() => onMouseEnter(byteIndex)}
+      style={[styles.asciiByteBox, isSelected && styles.selectedByte]}
+    >
+      <Text style={[styles.asciiByteText, isSelected && styles.selectedText]}>
+        {ascii}
+      </Text>
+    </InteractiveView>
+  );
+});
+
 export default function HexView({ data }: HexViewProps) {
   const InteractiveView: any = View;
   const [selectedBytes, setSelectedBytes] = useState<Set<number>>(new Set());
@@ -20,10 +79,10 @@ export default function HexView({ data }: HexViewProps) {
   const [gotoOffset, setGotoOffset] = useState('');
   const [encoding, setEncoding] = useState<'UTF-8' | 'ASCII' | 'UTF-16'>('UTF-8');
   const [bytesPerLine] = useState(16);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [isSelecting, setIsSelecting] = useState(false);
+  const selectionStartRef = useRef<number | null>(null);
+  const isSelectingRef = useRef(false);
 
-  const encodeData = (str: string, enc: string): Uint8Array => {
+  const encodeData = useCallback((str: string, enc: string): Uint8Array => {
     switch (enc) {
       case 'UTF-8':
         return new TextEncoder().encode(str);
@@ -38,49 +97,64 @@ export default function HexView({ data }: HexViewProps) {
       default:
         return new TextEncoder().encode(str);
     }
-  };
+  }, []);
 
-  const bytes = encodeData(data, encoding);
+  // Memoize byte array computation
+  const bytes = useMemo(() => encodeData(data, encoding), [data, encoding, encodeData]);
 
-  const handleByteMouseDown = (byteIndex: number) => {
-    setSelectionStart(byteIndex);
-    setIsSelecting(true);
+  // Limit data size for performance - show warning for very large files
+  const MAX_DISPLAY_BYTES = 1000000; // 1MB
+  const isLargeFile = bytes.length > MAX_DISPLAY_BYTES;
+  const displayBytes = isLargeFile ? bytes.slice(0, MAX_DISPLAY_BYTES) : bytes;
+
+  const handleByteMouseDown = useCallback((byteIndex: number) => {
+    selectionStartRef.current = byteIndex;
+    isSelectingRef.current = true;
     setSelectedBytes(new Set([byteIndex]));
-  };
+  }, []);
 
-  const handleByteMouseEnter = (byteIndex: number) => {
-    if (isSelecting && selectionStart !== null) {
-      const start = Math.min(selectionStart, byteIndex);
-      const end = Math.max(selectionStart, byteIndex);
+  const handleByteMouseEnter = useCallback((byteIndex: number) => {
+    if (!isSelectingRef.current || selectionStartRef.current === null) return;
+
+    const start = Math.min(selectionStartRef.current, byteIndex);
+    const end = Math.max(selectionStartRef.current, byteIndex);
+
+    // Only update if selection actually changed
+    setSelectedBytes(prev => {
+      // Quick check if selection is the same
+      if (prev.size === (end - start + 1) && prev.has(start) && prev.has(end)) {
+        return prev;
+      }
+
       const newSelection = new Set<number>();
       for (let i = start; i <= end; i++) {
         newSelection.add(i);
       }
-      setSelectedBytes(newSelection);
-    }
-  };
+      return newSelection;
+    });
+  }, []);
 
-  const handleMouseUp = () => {
-    setIsSelecting(false);
-  };
+  const handleMouseUp = useCallback(() => {
+    isSelectingRef.current = false;
+  }, []);
 
-  const handleGoto = () => {
+  const handleGoto = useCallback(() => {
     const offset = parseInt(gotoOffset, 16);
-    if (!isNaN(offset) && offset >= 0 && offset < bytes.length) {
+    if (!isNaN(offset) && offset >= 0 && offset < displayBytes.length) {
       setSelectedBytes(new Set([offset]));
       // Scroll to offset would require ref implementation
     }
-  };
+  }, [gotoOffset, displayBytes.length]);
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (!searchTerm) return;
     const searchBytes = new TextEncoder().encode(searchTerm);
 
     // Simple search - find first occurrence
-    for (let i = 0; i <= bytes.length - searchBytes.length; i++) {
+    for (let i = 0; i <= displayBytes.length - searchBytes.length; i++) {
       let match = true;
       for (let j = 0; j < searchBytes.length; j++) {
-        if (bytes[i + j] !== searchBytes[j]) {
+        if (displayBytes[i + j] !== searchBytes[j]) {
           match = false;
           break;
         }
@@ -94,45 +168,12 @@ export default function HexView({ data }: HexViewProps) {
         return;
       }
     }
-  };
+  }, [searchTerm, displayBytes]);
 
-  const renderHexByte = (byteValue: number, byteIndex: number) => {
-    const hex = byteValue.toString(16).padStart(2, '0').toUpperCase();
-    const isSelected = selectedBytes.has(byteIndex);
-    return (
-      <InteractiveView
-        key={byteIndex}
-        onMouseDown={() => handleByteMouseDown(byteIndex)}
-        onMouseEnter={() => handleByteMouseEnter(byteIndex)}
-        style={[styles.byteBox, isSelected && styles.selectedByte]}
-      >
-        <Text style={[styles.hexByteText, isSelected && styles.selectedText]}>
-          {hex}
-        </Text>
-      </InteractiveView>
-    );
-  };
-
-  const renderAsciiByte = (byteValue: number, byteIndex: number) => {
-    const ascii = (byteValue >= 32 && byteValue <= 126) ? String.fromCharCode(byteValue) : '.';
-    const isSelected = selectedBytes.has(byteIndex);
-    return (
-      <InteractiveView
-        key={byteIndex}
-        onMouseDown={() => handleByteMouseDown(byteIndex)}
-        onMouseEnter={() => handleByteMouseEnter(byteIndex)}
-        style={[styles.asciiByteBox, isSelected && styles.selectedByte]}
-      >
-        <Text style={[styles.asciiByteText, isSelected && styles.selectedText]}>
-          {ascii}
-        </Text>
-      </InteractiveView>
-    );
-  };
-
-  const renderLine = (lineIndex: number) => {
+  // Memoize line rendering
+  const renderLine = useCallback((lineIndex: number) => {
     const offset = lineIndex * bytesPerLine;
-    const lineBytes = bytes.slice(offset, offset + bytesPerLine);
+    const lineBytes = displayBytes.slice(offset, offset + bytesPerLine);
 
     return (
       <View key={lineIndex} style={styles.hexRow}>
@@ -142,9 +183,16 @@ export default function HexView({ data }: HexViewProps) {
         <Text style={styles.spacer}>  </Text>
 
         <View style={styles.hexBytesContainer}>
-          {Array.from(lineBytes).map((byte, idx) =>
-            renderHexByte(byte, offset + idx)
-          )}
+          {Array.from(lineBytes).map((byte, idx) => (
+            <HexByte
+              key={offset + idx}
+              byteValue={byte}
+              byteIndex={offset + idx}
+              isSelected={selectedBytes.has(offset + idx)}
+              onMouseDown={handleByteMouseDown}
+              onMouseEnter={handleByteMouseEnter}
+            />
+          ))}
           {/* Padding for incomplete lines */}
           {Array.from({ length: bytesPerLine - lineBytes.length }).map((_, idx) => (
             <View key={`pad-${idx}`} style={styles.byteBox}>
@@ -156,20 +204,41 @@ export default function HexView({ data }: HexViewProps) {
         <Text style={styles.spacer}>  </Text>
 
         <View style={styles.asciiBytesContainer}>
-          {Array.from(lineBytes).map((byte, idx) =>
-            renderAsciiByte(byte, offset + idx)
-          )}
+          {Array.from(lineBytes).map((byte, idx) => (
+            <AsciiByte
+              key={offset + idx}
+              byteValue={byte}
+              byteIndex={offset + idx}
+              isSelected={selectedBytes.has(offset + idx)}
+              onMouseDown={handleByteMouseDown}
+              onMouseEnter={handleByteMouseEnter}
+            />
+          ))}
         </View>
       </View>
     );
-  };
+  }, [displayBytes, bytesPerLine, selectedBytes, handleByteMouseDown, handleByteMouseEnter]);
 
-  const totalLines = Math.ceil(bytes.length / bytesPerLine);
+  const totalLines = Math.ceil(displayBytes.length / bytesPerLine);
+
+  // Memoize all lines
+  const allLines = useMemo(() => {
+    return Array.from({ length: totalLines }).map((_, idx) => renderLine(idx));
+  }, [totalLines, renderLine]);
 
   return (
-  <InteractiveView style={styles.container} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+    <InteractiveView style={styles.container} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
       {/* Controls */}
       <View style={styles.controls}>
+        {isLargeFile && (
+          <View style={styles.warningBanner}>
+            <Ionicons name="warning" size={16} color="#f48771" />
+            <Text style={styles.warningText}>
+              Large file detected ({bytes.length.toLocaleString()} bytes). Displaying first {MAX_DISPLAY_BYTES.toLocaleString()} bytes for performance.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.controlRow}>
           <View style={styles.searchContainer}>
             <TextInput
@@ -217,7 +286,7 @@ export default function HexView({ data }: HexViewProps) {
 
         <View style={styles.infoRow}>
           <Text style={styles.infoText}>
-            Size: {bytes.length} bytes | Selected: {selectedBytes.size} byte{selectedBytes.size !== 1 ? 's' : ''}
+            Size: {displayBytes.length.toLocaleString()} bytes | Selected: {selectedBytes.size} byte{selectedBytes.size !== 1 ? 's' : ''}
           </Text>
           {selectedBytes.size > 0 && (
             <TouchableOpacity onPress={() => setSelectedBytes(new Set())} style={styles.clearButton}>
@@ -228,9 +297,9 @@ export default function HexView({ data }: HexViewProps) {
       </View>
 
       {/* Hex View */}
-  <ScrollView style={styles.scrollView}>
+      <ScrollView style={styles.scrollView}>
         <View style={styles.hexContainer}>
-          {Array.from({ length: totalLines }).map((_, idx) => renderLine(idx))}
+          {allLines}
         </View>
       </ScrollView>
     </InteractiveView>
@@ -247,6 +316,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#3e3e42',
     padding: 8,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#3e2e1f',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  warningText: {
+    color: '#f48771',
+    fontSize: 12,
+    flex: 1,
   },
   controlRow: {
     flexDirection: 'row',
