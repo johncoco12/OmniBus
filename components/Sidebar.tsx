@@ -341,7 +341,7 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
         // Remove from UI
         setServers(prev => prev.filter(s => s.id !== contextMenu.node?.id));
 
-        console.log(`✓ Connection ${contextMenu.node.id} deleted`);
+        console.log(`Connection ${contextMenu.node.id} deleted`);
       } catch (error) {
         console.error('Failed to delete connection:', error);
         alert(`Failed to delete connection: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -384,7 +384,7 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
           return server;
         }));
 
-        console.log(`✓ Connection ${contextMenu.node.id} refreshed`);
+        console.log(`Connection ${contextMenu.node.id} refreshed`);
       }
     } catch (error) {
       console.error('Failed to refresh connection:', error);

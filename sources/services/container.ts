@@ -28,5 +28,5 @@ export function initializeContainer() {
   container.register('RabbitMQService', { useClass: RabbitMQService });
 
   isInitialized = true;
-  console.log('✓ Service container initialized');
+  console.log('Service container initialized');
 }

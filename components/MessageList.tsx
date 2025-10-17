@@ -63,7 +63,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       }
 
       const rawMessages = await service.getMessages(selectedQueue.queueName);
-      console.log(`✓ Fetched ${rawMessages.length} messages from queue ${selectedQueue.queueName}`);
+      console.log(`Fetched ${rawMessages.length} messages from queue ${selectedQueue.queueName}`);
 
       // Transform raw messages to UI format
       const transformedMessages: Message[] = rawMessages.map((msg, index) => {
@@ -99,7 +99,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
 
       setMessages(transformedMessages);
     } catch (err) {
-      console.error('✗ Error fetching messages:', err);
+      console.error('Error fetching messages:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch messages');
       setMessages([]);
     } finally {
@@ -134,11 +134,11 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       if (modifier && e.key === 'c') {
         e.preventDefault();
         setClipboard({ message: selectedMessage, cut: false });
-        console.log('✓ Message copied (Ctrl+C)');
+        console.log('Message copied (Ctrl+C)');
       } else if (modifier && e.key === 'x') {
         e.preventDefault();
         setClipboard({ message: selectedMessage, cut: true });
-        console.log('✓ Message cut (Ctrl+X)');
+        console.log('Message cut (Ctrl+X)');
       } else if (modifier && e.key === 'v' && clipboard) {
         e.preventDefault();
         handlePaste();
@@ -186,14 +186,14 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
   const handleCopy = () => {
     if (contextMenu.message) {
       setClipboard({ message: contextMenu.message, cut: false });
-      console.log('✓ Message copied to clipboard');
+      console.log('Message copied to clipboard');
     }
   };
 
   const handleCut = () => {
     if (contextMenu.message) {
       setClipboard({ message: contextMenu.message, cut: true });
-      console.log('✓ Message cut to clipboard');
+      console.log('Message cut to clipboard');
     }
   };
 
@@ -216,7 +216,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
         setClipboard(null);
       }
 
-      console.log('✓ Message pasted');
+      console.log('Message pasted');
 
       // Refresh to show new message
       setTimeout(() => {
@@ -252,7 +252,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       // Send updated message
       await service.sendMessage(selectedQueue.queueName, parsedBody);
 
-      console.log('✓ Message updated');
+      console.log('Message updated');
 
       setShowEditModal(false);
       setEditingMessage(null);
@@ -281,7 +281,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       // Refresh messages
       setMessages(prev => prev.filter(m => m.id !== contextMenu.message?.id));
 
-      console.log(`✓ Message ${contextMenu.message.id} deleted`);
+      console.log(`Message ${contextMenu.message.id} deleted`);
     } catch (error) {
       console.error('Failed to delete message:', error);
       alert(`Failed to delete message: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -330,10 +330,10 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       setMovingMessageIds([]);
 
       if (failCount > 0) {
-        console.log(`✓ Moved ${successCount} messages to ${targetQueue}, ${failCount} failed`);
+        console.log(`Moved ${successCount} messages to ${targetQueue}, ${failCount} failed`);
         alert(`Moved ${successCount} message(s) to ${targetQueue}, but ${failCount} failed.`);
       } else {
-        console.log(`✓ Moved ${successCount} message(s) to ${targetQueue}`);
+        console.log(`Moved ${successCount} message(s) to ${targetQueue}`);
       }
     } catch (error) {
       console.error('Failed to move messages:', error);
@@ -422,10 +422,10 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       setSelectedMessages(new Set());
 
       if (failCount > 0) {
-        console.log(`✓ Deleted ${successCount} messages, ${failCount} failed`);
+        console.log(`Deleted ${successCount} messages, ${failCount} failed`);
         alert(`Deleted ${successCount} message(s), but ${failCount} failed. The queue will be refreshed.`);
       } else {
-        console.log(`✓ Deleted ${successCount} messages`);
+        console.log(`Deleted ${successCount} messages`);
       }
     } catch (error) {
       console.error('Failed to delete messages:', error);
@@ -442,7 +442,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
     const messagesToCopy = messages.filter(m => selectedMessages.has(m.id));
     const jsonArray = messagesToCopy.map(m => m.body);
     navigator.clipboard.writeText(JSON.stringify(jsonArray, null, 2));
-    console.log(`✓ Copied ${selectedMessages.size} messages to clipboard`);
+    console.log(`Copied ${selectedMessages.size} messages to clipboard`);
   };
 
   const handleExportSingle = async () => {
@@ -472,7 +472,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      console.log(`✓ Exported message to message-${contextMenu.message.id}.json`);
+      console.log(`Exported message to message-${contextMenu.message.id}.json`);
     } catch (error) {
       console.error('Failed to export message:', error);
       alert(`Failed to export message: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -507,7 +507,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      console.log(`✓ Exported ${selectedMessages.size} messages to JSON file`);
+      console.log(`Exported ${selectedMessages.size} messages to JSON file`);
     } catch (error) {
       console.error('Failed to export messages:', error);
       alert(`Failed to export messages: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -534,10 +534,10 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
         // Use service import if available, otherwise send directly
         if (service.importMessages) {
           const result = await service.importMessages(selectedQueue.queueName, [data]);
-          console.log(`✓ Imported ${result.successCount} message(s) from ${file.name}, ${result.failCount} failed`);
+          console.log(`Imported ${result.successCount} message(s) from ${file.name}, ${result.failCount} failed`);
         } else {
           await service.sendMessage(selectedQueue.queueName, data);
-          console.log(`✓ Imported and sent message from ${file.name}`);
+          console.log(`Imported and sent message from ${file.name}`);
         }
 
         // Refresh messages
@@ -575,7 +575,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
         // Use service import if available, otherwise send directly
         if (service.importMessages) {
           const result = await service.importMessages(selectedQueue.queueName, messagesToImport);
-          console.log(`✓ Imported ${result.successCount} message(s) from ${file.name}, ${result.failCount} failed`);
+          console.log(`Imported ${result.successCount} message(s) from ${file.name}, ${result.failCount} failed`);
 
           if (result.failCount > 0) {
             alert(`Imported ${result.successCount} message(s), but ${result.failCount} failed. The queue will be refreshed.`);
@@ -584,7 +584,7 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
           // Fall back to sequential sending
           const sendPromises = messagesToImport.map(msg => service.sendMessage(selectedQueue.queueName, msg));
           await Promise.all(sendPromises);
-          console.log(`✓ Imported and sent ${messagesToImport.length} message(s) from ${file.name}`);
+          console.log(`Imported and sent ${messagesToImport.length} message(s) from ${file.name}`);
         }
 
         // Refresh messages

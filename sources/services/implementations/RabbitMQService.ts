@@ -52,18 +52,18 @@ export class RabbitMQService implements IMessageBrokerService {
             console.log('STOMP:', str);
           },
           onConnect: (frame) => {
-            console.log('✓ Connected to RabbitMQ via STOMP', frame);
+            console.log('Connected to RabbitMQ via STOMP', frame);
             clearTimeout(timeout);
             this.connection = { ...connection, isConnected: true };
             resolve();
           },
           onStompError: (frame) => {
-            console.error('✗ STOMP protocol error:', frame);
+            console.error('STOMP protocol error:', frame);
             clearTimeout(timeout);
             reject(new Error(`STOMP error: ${frame.headers['message'] || 'Unknown STOMP error'}`));
           },
           onWebSocketError: (event) => {
-            console.error('✗ WebSocket error:', event);
+            console.error('WebSocket error:', event);
             clearTimeout(timeout);
             reject(new Error(`WebSocket connection failed. Make sure RabbitMQ Web-STOMP plugin is enabled and accessible.`));
           },
@@ -77,7 +77,7 @@ export class RabbitMQService implements IMessageBrokerService {
 
         console.log('STOMP client activated, waiting for connection...');
       } catch (error: any) {
-        console.error('✗ Connection setup error:', error);
+        console.error('Connection setup error:', error);
         reject(new Error(`Failed to setup connection: ${error.message}`));
       }
     });
@@ -119,7 +119,7 @@ export class RabbitMQService implements IMessageBrokerService {
 
       const queues = await response.json();
 
-      console.log('✓ Fetched queues from RabbitMQ:', queues);
+      console.log('Fetched queues from RabbitMQ:', queues);
 
       return queues.map((queue: any) => ({
         id: queue.name,
@@ -127,7 +127,7 @@ export class RabbitMQService implements IMessageBrokerService {
         messageCount: queue.messages || 0,
       }));
     } catch (error) {
-      console.error('✗ Error fetching queues from RabbitMQ:', error);
+      console.error('Error fetching queues from RabbitMQ:', error);
       console.error('Management API URL:', this.managementApiUrl);
       throw error; // Don't return mock data, throw the error so we know what failed
     }
@@ -218,7 +218,7 @@ export class RabbitMQService implements IMessageBrokerService {
     // Recreate the connection
     try {
       await this.connect(this.connection);
-      console.log('✓ STOMP reconnected successfully');
+      console.log('STOMP reconnected successfully');
     } catch (error) {
       console.error('Failed to reconnect STOMP:', error);
       throw new Error('Failed to reconnect to RabbitMQ');
@@ -248,9 +248,9 @@ export class RabbitMQService implements IMessageBrokerService {
         },
       });
 
-      console.log(`✓ Message sent to queue: ${queueName}`);
+      console.log(`Message sent to queue: ${queueName}`);
     } catch (error) {
-      console.error('✗ Error sending message:', error);
+      console.error('Error sending message:', error);
       throw error;
     }
   }
@@ -282,8 +282,8 @@ export class RabbitMQService implements IMessageBrokerService {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            count: 1000, // Get all messages (up to 1000)
-            ackmode: 'ack_requeue_false', // Acknowledge without requeue
+            count: 1000,
+            ackmode: 'ack_requeue_false', // Ac0
             encoding: 'auto',
           }),
         }
@@ -307,12 +307,12 @@ export class RabbitMQService implements IMessageBrokerService {
         const msgId = msg.properties?.message_id || `${i}`;
 
         if (msgId === messageId) {
-          console.log(`✗ Deleting message ${msgId}`);
+          console.log(`Deleting message ${msgId}`);
           messageFound = true;
         } else {
           // Republish message back to queue
           if (this.stompClient?.connected) {
-            console.log(`↻ Requeuing message ${msgId}`);
+            console.log(`Requeuing message ${msgId}`);
 
             const publishPromise = new Promise<void>((resolve) => {
               // Filter out headers that should not be copied (STOMP will set these)
@@ -355,8 +355,8 @@ export class RabbitMQService implements IMessageBrokerService {
 
       // Wait for all publishes to complete
       await Promise.all(publishPromises);
-      console.log(`✓ ${publishPromises.length} messages requeued`);
-      console.log(`✓ Message ${messageId} deleted from queue ${queueName}`);
+      console.log(`${publishPromises.length} messages requeued`);
+      console.log(`Message ${messageId} deleted from queue ${queueName}`);
     } catch (error) {
       console.error('Error deleting message:', error);
       throw error;
@@ -370,6 +370,51 @@ export class RabbitMQService implements IMessageBrokerService {
 
     if (messageIds.length === 0) {
       return { successCount: 0, failCount: 0 };
+    }
+
+    // If messageIds > 1000, chunk them and process in batches
+    if (messageIds.length > 1000) {
+      const chunks = this.chunkArray(messageIds, 1000);
+      console.log(`Bulk delete: Processing ${messageIds.length} messages in ${chunks.length} chunks of max 1000`);
+      
+      let totalSuccessCount = 0;
+      let totalFailCount = 0;
+      const failedChunks: { chunkIndex: number; messageIds: string[]; error: any }[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`Processing chunk ${i + 1}/${chunks.length} with ${chunk.length} messages`);
+        
+        try {
+          const result = await this.retryChunkOperation(
+            () => this.bulkDeleteMessages(queueName, chunk),
+            i + 1
+          );
+          totalSuccessCount += result.successCount;
+          totalFailCount += result.failCount;
+          
+          // Small delay between chunks to avoid overwhelming the broker
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          console.error(`Chunk ${i + 1} failed after all retries:`, error);
+          failedChunks.push({ chunkIndex: i + 1, messageIds: chunk, error });
+          totalFailCount += chunk.length; // These messages remain in queue (not lost)
+        }
+      }
+
+      // Report failed chunks for potential retry
+      if (failedChunks.length > 0) {
+        console.warn(`${failedChunks.length} chunks failed completely. Messages remain in queue:`);
+        failedChunks.forEach(fc => {
+          console.warn(`  - Chunk ${fc.chunkIndex}: ${fc.messageIds.length} messages (${fc.messageIds.slice(0, 3).join(', ')}${fc.messageIds.length > 3 ? '...' : ''})`);
+        });
+        console.warn(`   Failed message IDs are not lost - they remain in the source queue.`);
+      }
+
+      console.log(`Chunked bulk delete complete: ${totalSuccessCount} deleted, ${totalFailCount} failed/remaining`);
+      return { successCount: totalSuccessCount, failCount: totalFailCount };
     }
 
     // Ensure STOMP connection for republishing
@@ -418,7 +463,7 @@ export class RabbitMQService implements IMessageBrokerService {
         const msgId = msg.properties?.message_id || `${i}`;
 
         if (messageIdSet.has(msgId)) {
-          console.log(`✗ Deleting message ${msgId}`);
+          console.log(`Deleting message ${msgId}`);
           successCount++;
         } else {
           // Republish message back to queue
@@ -459,8 +504,8 @@ export class RabbitMQService implements IMessageBrokerService {
       await Promise.all(publishPromises);
 
       const failCount = messageIds.length - successCount;
-      console.log(`✓ ${publishPromises.length} messages requeued`);
-      console.log(`✓ Deleted ${successCount} messages, ${failCount} not found`);
+      console.log(`${publishPromises.length} messages requeued`);
+      console.log(`Deleted ${successCount} messages, ${failCount} not found`);
 
       return { successCount, failCount };
     } catch (error) {
@@ -476,6 +521,51 @@ export class RabbitMQService implements IMessageBrokerService {
 
     if (messageIds.length === 0) {
       return { successCount: 0, failCount: 0 };
+    }
+
+    // If messageIds > 1000, chunk them and process in batches
+    if (messageIds.length > 1000) {
+      const chunks = this.chunkArray(messageIds, 1000);
+      console.log(`Bulk move: Processing ${messageIds.length} messages in ${chunks.length} chunks of max 1000`);
+      
+      let totalSuccessCount = 0;
+      let totalFailCount = 0;
+      const failedChunks: { chunkIndex: number; messageIds: string[]; error: any }[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`Processing chunk ${i + 1}/${chunks.length} with ${chunk.length} messages`);
+        
+        try {
+          const result = await this.retryChunkOperation(
+            () => this.bulkMoveMessages(sourceQueue, targetQueue, chunk),
+            i + 1
+          );
+          totalSuccessCount += result.successCount;
+          totalFailCount += result.failCount;
+          
+          // Small delay between chunks to avoid overwhelming the broker
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          console.error(`Chunk ${i + 1} failed after all retries:`, error);
+          failedChunks.push({ chunkIndex: i + 1, messageIds: chunk, error });
+          totalFailCount += chunk.length; // These messages remain in source queue (not lost)
+        }
+      }
+
+      // Report failed chunks for potential retry
+      if (failedChunks.length > 0) {
+        console.warn(`${failedChunks.length} chunks failed completely. Messages remain in source queue:`);
+        failedChunks.forEach(fc => {
+          console.warn(`  - Chunk ${fc.chunkIndex}: ${fc.messageIds.length} messages (${fc.messageIds.slice(0, 3).join(', ')}${fc.messageIds.length > 3 ? '...' : ''})`);
+        });
+        console.warn(`   Failed message IDs are not lost - they remain in ${sourceQueue}.`);
+      }
+
+      console.log(`Chunked bulk move complete: ${totalSuccessCount} moved from ${sourceQueue} to ${targetQueue}, ${totalFailCount} failed/remaining`);
+      return { successCount: totalSuccessCount, failCount: totalFailCount };
     }
 
     // Ensure STOMP connection
@@ -525,7 +615,7 @@ export class RabbitMQService implements IMessageBrokerService {
 
         if (messageIdSet.has(msgId)) {
           // Move this message to target queue
-          console.log(`→ Moving message ${msgId} to ${targetQueue}`);
+          console.log(`Moving message ${msgId} to ${targetQueue}`);
           successCount++;
 
           if (this.stompClient?.connected) {
@@ -597,9 +687,9 @@ export class RabbitMQService implements IMessageBrokerService {
       await Promise.all([...requeuePromises, ...movePromises]);
 
       const failCount = messageIds.length - successCount;
-      console.log(`✓ ${requeuePromises.length} messages requeued to ${sourceQueue}`);
-      console.log(`✓ ${movePromises.length} messages moved to ${targetQueue}`);
-      console.log(`✓ Moved ${successCount} messages, ${failCount} not found`);
+      console.log(`${requeuePromises.length} messages requeued to ${sourceQueue}`);
+      console.log(`${movePromises.length} messages moved to ${targetQueue}`);
+      console.log(`Moved ${successCount} messages, ${failCount} not found`);
 
       return { successCount, failCount };
     } catch (error) {
@@ -655,7 +745,7 @@ export class RabbitMQService implements IMessageBrokerService {
       await Promise.all(sendPromises);
 
       const failCount = messages.length - successCount;
-      console.log(`✓ Imported ${successCount} messages, ${failCount} failed`);
+      console.log(`Imported ${successCount} messages, ${failCount} failed`);
 
       return { successCount, failCount };
     } catch (error) {
@@ -683,7 +773,7 @@ export class RabbitMQService implements IMessageBrokerService {
         .filter(msg => messageIdSet.has(msg.id))
         .map(msg => msg.body);
 
-      console.log(`✓ Exported ${exportedMessages.length} messages from ${queueName}`);
+      console.log(`Exported ${exportedMessages.length} messages from ${queueName}`);
 
       return exportedMessages;
     } catch (error) {
@@ -701,6 +791,44 @@ export class RabbitMQService implements IMessageBrokerService {
       hash = (hash * 31 + payload.charCodeAt(i)) >>> 0;
     }
     return `${base}#${hash.toString(16)}:${index}`;
+  }
+
+  private chunkArray<T>(array: T[], chunkSize: number = 1000): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  private async retryChunkOperation<T>(
+    operation: () => Promise<T>,
+    chunkIndex: number,
+    maxRetries: number = 2,
+    baseDelayMs: number = 1000
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = baseDelayMs * Math.pow(2, attempt - 1);
+          console.log(`Retrying chunk ${chunkIndex}, attempt ${attempt + 1}/${maxRetries + 1} after ${delay}ms delay`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        console.warn(`Chunk ${chunkIndex} attempt ${attempt + 1} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+      }
+    }
+    
+    throw lastError;
   }
 
   private filterRepublishHeaders(headers?: Record<string, any>): Record<string, string> {
@@ -761,7 +889,7 @@ export class RabbitMQService implements IMessageBrokerService {
     const baseUrl = `${url.protocol}//${url.host}`;
     const vhost = url.searchParams.get('vhost') || '/';
 
-    // 1. Fetch messages (consume) from source queue
+    // Fetch messages (consume) from source queue
     const response = await fetch(
       `${baseUrl}/api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(sourceQueue)}/get`,
       {
@@ -786,7 +914,7 @@ export class RabbitMQService implements IMessageBrokerService {
       throw new Error('No messages available in source queue');
     }
 
-    // 2. Build internal records with safe IDs
+    // Build internal records with safe IDs
     interface TempMsg { raw: any; internalId: string; originalId: string; isTarget: boolean; }
     const tempMessages: TempMsg[] = rawMessages.map((m: any, idx: number) => {
       const originalId = m.properties?.message_id || `${idx}`;
@@ -807,7 +935,7 @@ export class RabbitMQService implements IMessageBrokerService {
     }
     const target = targets[0];
 
-    // 3. Republish non-target messages back to source with confirmation
+    // Republish non-target messages back to source with confirmation
     const nonTargets = tempMessages.filter(m => !m.isTarget);
     console.log(`Requeueing ${nonTargets.length} messages back to ${sourceQueue}`);
 
@@ -828,7 +956,7 @@ export class RabbitMQService implements IMessageBrokerService {
       }
     }
 
-    // 4. Publish target message to destination with confirmation
+    // Publish target message to destination with confirmation
     console.log(`Publishing target message ${target.originalId} to ${targetQueue}`);
     const tFiltered = this.filterRepublishHeaders(target.raw.properties?.headers);
     const tHeaders: Record<string,string> = {
@@ -841,7 +969,7 @@ export class RabbitMQService implements IMessageBrokerService {
 
     await this.publishWithReceipt(`/queue/${targetQueue}`, target.raw.payload, tHeaders);
 
-    console.log(`✓ Robust move complete: ${target.originalId} from ${sourceQueue} → ${targetQueue}`);
+    console.log(`Move complete: ${target.originalId} from ${sourceQueue} to ${targetQueue}`);
   }
 
   getConnection(): IConnection | null {

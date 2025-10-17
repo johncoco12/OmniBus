@@ -22,7 +22,7 @@ export class AzureServiceBusService implements IMessageBrokerService {
         this.managementEndpoint = `http://${endpointMatch[1]}:10749`;
       }
 
-      console.log('✓ Connected to Azure Service Bus');
+      console.log('Connected to Azure Service Bus');
     } catch (error: any) {
       console.error('Failed to connect to Azure Service Bus:', error);
       throw new Error(`Azure Service Bus connection failed: ${error.message}`);

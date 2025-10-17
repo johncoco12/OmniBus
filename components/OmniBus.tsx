@@ -40,12 +40,12 @@ export default function OmniBus() {
 
       await service.sendMessage(selectedQueue.queueName, messageBody);
 
-      console.log('✓ Message sent successfully');
+      console.log('Message sent successfully');
       setShowAddModal(false);
       setRefreshTrigger(prev => prev + 1);
       Alert.alert('Success', 'Message sent successfully');
     } catch (error: any) {
-      console.error('✗ Failed to send message:', error);
+      console.error('Failed to send message:', error);
       Alert.alert('Error', `Failed to send message: ${error.message}`);
     }
   };
