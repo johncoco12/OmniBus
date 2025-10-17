@@ -105,6 +105,11 @@ export interface IMessageBrokerService {
   bulkDeleteMessages?(queueName: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }>;
 
   /**
+   * Purge all messages from a queue (optional)
+   */
+  purgeQueue?(queueName: string): Promise<{ successCount: number }>;
+
+  /**
    * Delete a message from a topic subscription (optional - Azure Service Bus)
    */
   deleteTopicMessage?(topicName: string, subscriptionName: string, messageId: string): Promise<void>;

@@ -12,6 +12,8 @@ export class RabbitMQService implements IMessageBrokerService {
   private connection: IConnection | null = null;
   private stompClient: Client | null = null;
   private managementApiUrl: string = '';
+  private username : string = '';
+  private password : string = '';
 
   async connect(connection: IConnection): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -27,8 +29,8 @@ export class RabbitMQService implements IMessageBrokerService {
         this.managementApiUrl = managementUrl.trim();
 
         const url = new URL(wsUrl.trim());
-        const username = url.username || 'guest';
-        const password = url.password || 'guest';
+        this.username = url.username || 'guest';
+        this.password = url.password || 'guest';
 
         console.log('Connecting to RabbitMQ WebSocket:', `${url.protocol}//${url.host}${url.pathname}`);
         console.log('Management API:', this.managementApiUrl);
@@ -41,8 +43,8 @@ export class RabbitMQService implements IMessageBrokerService {
         const stompConfig: StompConfig = {
           brokerURL: `${url.protocol}//${url.host}${url.pathname}`,
           connectHeaders: {
-            login: username,
-            passcode: password,
+            login: this.username,
+            passcode: this.password,
             host: '/',
           },
           reconnectDelay: 0, // Disable auto-reconnect during initial connection
@@ -103,13 +105,11 @@ export class RabbitMQService implements IMessageBrokerService {
     try {
       // Use RabbitMQ Management API to get queues
       const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
       const baseUrl = `${url.protocol}//${url.host}`;
 
       const response = await fetch(`${baseUrl}/api/queues`, {
         headers: {
-          'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+          'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
         },
       });
 
@@ -147,8 +147,6 @@ export class RabbitMQService implements IMessageBrokerService {
     try {
       // Use RabbitMQ Management API to get messages
       const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
       const baseUrl = `${url.protocol}//${url.host}`;
       const vhost = url.searchParams.get('vhost') || '/';
 
@@ -157,7 +155,7 @@ export class RabbitMQService implements IMessageBrokerService {
         {
           method: 'POST',
           headers: {
-            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -267,8 +265,6 @@ export class RabbitMQService implements IMessageBrokerService {
 
     try {
       const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
       const baseUrl = `${url.protocol}//${url.host}`;
       const vhost = url.searchParams.get('vhost') || '/';
 
@@ -278,7 +274,7 @@ export class RabbitMQService implements IMessageBrokerService {
         {
           method: 'POST',
           headers: {
-            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -422,8 +418,6 @@ export class RabbitMQService implements IMessageBrokerService {
 
     try {
       const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
       const baseUrl = `${url.protocol}//${url.host}`;
       const vhost = url.searchParams.get('vhost') || '/';
 
@@ -433,7 +427,7 @@ export class RabbitMQService implements IMessageBrokerService {
         {
           method: 'POST',
           headers: {
-            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -514,6 +508,54 @@ export class RabbitMQService implements IMessageBrokerService {
     }
   }
 
+  async purgeQueue(queueName: string): Promise<{ successCount: number }> {
+    if (!this.connection || !this.managementApiUrl) {
+      throw new Error('Not connected to RabbitMQ');
+    }
+
+    try {
+      console.log(`Purging all messages from queue: ${queueName}`);
+      
+      // Extract credentials from management API URL
+      const url = new URL(this.managementApiUrl);
+      const username = url.username || 'guest';
+      const password = url.password || 'guest';
+      const baseUrl = `${url.protocol}//${url.host}`;
+
+      // First get the current message count
+      const queueInfoResponse = await fetch(`${baseUrl}/api/queues/%2F/${encodeURIComponent(queueName)}`, {
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+        },
+      });
+
+      let messageCount = 0;
+      if (queueInfoResponse.ok) {
+        const queueInfo = await queueInfoResponse.json();
+        messageCount = queueInfo.messages || 0;
+      }
+
+      // Purge the queue
+      const response = await fetch(`${baseUrl}/api/queues/%2F/${encodeURIComponent(queueName)}/contents`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to purge queue: ${response.status} ${response.statusText}`);
+      }
+
+      console.log(`Queue ${queueName} purged successfully - removed ${messageCount} messages`);
+      return { successCount: messageCount };
+    } catch (error) {
+      console.error('Error purging queue:', error);
+      throw error;
+    }
+  }
+
   async bulkMoveMessages(sourceQueue: string, targetQueue: string, messageIds: string[]): Promise<{ successCount: number; failCount: number }> {
     if (!this.connection || !this.managementApiUrl) {
       throw new Error('Not connected to RabbitMQ');
@@ -573,8 +615,6 @@ export class RabbitMQService implements IMessageBrokerService {
 
     try {
       const url = new URL(this.managementApiUrl);
-      const username = url.username || 'guest';
-      const password = url.password || 'guest';
       const baseUrl = `${url.protocol}//${url.host}`;
       const vhost = url.searchParams.get('vhost') || '/';
 
@@ -584,7 +624,7 @@ export class RabbitMQService implements IMessageBrokerService {
         {
           method: 'POST',
           headers: {
-            'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+            'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -884,8 +924,6 @@ export class RabbitMQService implements IMessageBrokerService {
     await this.ensureConnected();
 
     const url = new URL(this.managementApiUrl);
-    const username = url.username || 'guest';
-    const password = url.password || 'guest';
     const baseUrl = `${url.protocol}//${url.host}`;
     const vhost = url.searchParams.get('vhost') || '/';
 
@@ -895,7 +933,7 @@ export class RabbitMQService implements IMessageBrokerService {
       {
         method: 'POST',
         headers: {
-          'Authorization': 'Basic ' + btoa(`${username}:${password}`),
+          'Authorization': 'Basic ' + btoa(`${this.username}:${this.password}`),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

@@ -308,8 +308,8 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
   };
 
   const handleContextMenu = (event: any, node: TreeNode) => {
-    // Only show context menu for server nodes
-    if (node.iconType === 'server') {
+    // Show context menu for server and queue nodes
+    if (node.iconType === 'server' || node.iconType === 'queue') {
       event.preventDefault();
       event.stopPropagation();
       setContextMenu({
@@ -392,6 +392,75 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
     }
   };
 
+  const handlePurgeQueue = async () => {
+    if (!contextMenu.node || contextMenu.node.iconType !== 'queue') return;
+
+    const queueName = contextMenu.node.queueName || contextMenu.node.label;
+    const connectionId = contextMenu.node.connectionId;
+
+    if (!connectionId) {
+      alert('Connection ID not found for this queue');
+      return;
+    }
+
+    const confirmMessage = `Are you sure you want to PURGE ALL MESSAGES from queue "${queueName}"?\n\nThis will permanently delete ALL messages in the queue and cannot be undone.`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      const service = serviceBusManager.getService(connectionId);
+      if (!service) {
+        alert('Service not found for this connection');
+        return;
+      }
+
+      if (!service.purgeQueue) {
+        alert('Purge functionality is not supported for this service type');
+        return;
+      }
+
+      const result = await service.purgeQueue(queueName);
+      
+      // Refresh the queue list to update message counts
+      const server = servers.find(s => s.id === connectionId);
+      if (server) {
+        const queues = await service.getQueues();
+        setServers(prev => prev.map(s => {
+          if (s.id === connectionId) {
+            return {
+              ...s,
+              children: s.children?.map(child => {
+                if (child.iconType === 'folder' && child.label === 'Queues') {
+                  return {
+                    ...child,
+                    children: queues.map(q => ({
+                      id: `${connectionId}-queue-${q.name}`,
+                      label: q.name,
+                      iconType: 'queue' as const,
+                      count: q.messageCount,
+                      connectionId,
+                      queueName: q.name,
+                    })),
+                  };
+                }
+                return child;
+              }),
+            };
+          }
+          return s;
+        }));
+      }
+
+      alert(`Queue purged successfully! Removed ${result.successCount} messages.`);
+      console.log(`Queue ${queueName} purged: ${result.successCount} messages removed`);
+    } catch (error) {
+      console.error('Failed to purge queue:', error);
+      alert(`Failed to purge queue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const serverContextMenuItems: ContextMenuItem[] = [
     {
       label: 'Refresh',
@@ -411,6 +480,29 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
       danger: true,
     },
   ];
+
+  const queueContextMenuItems: ContextMenuItem[] = [
+    {
+      label: 'Purge Queue',
+      icon: 'clear',
+      onPress: handlePurgeQueue,
+      danger: true,
+    },
+  ];
+
+  // Get context menu items based on node type
+  const getContextMenuItems = (node: TreeNode | null): ContextMenuItem[] => {
+    if (!node) return [];
+    
+    switch (node.iconType) {
+      case 'server':
+        return serverContextMenuItems;
+      case 'queue':
+        return queueContextMenuItems;
+      default:
+        return [];
+    }
+  };
 
   const getIcon = (iconType: string, serviceType?: string) => {
     switch (iconType) {
@@ -588,7 +680,7 @@ export default function Sidebar({ onQueueSelect }: SidebarProps) {
         visible={contextMenu.visible}
         x={contextMenu.x}
         y={contextMenu.y}
-        items={serverContextMenuItems}
+        items={getContextMenuItems(contextMenu.node)}
         onClose={() => setContextMenu({ ...contextMenu, visible: false })}
       />
     </View>

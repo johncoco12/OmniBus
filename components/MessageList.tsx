@@ -438,6 +438,46 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
     handleOpenMoveModal(Array.from(selectedMessages));
   };
 
+  const handlePurgeQueue = async () => {
+    if (!selectedQueue) return;
+
+    const confirmMessage = `Are you sure you want to PURGE ALL MESSAGES from queue "${selectedQueue.queueName}"?\n\nThis will permanently delete ALL messages in the queue and cannot be undone.`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      const service = serviceBusManager.getService(selectedQueue.connectionId);
+      if (!service) {
+        alert('Service not found');
+        return;
+      }
+
+      if (!service.purgeQueue) {
+        alert('Purge functionality is not supported for this service type');
+        return;
+      }
+
+      const result = await service.purgeQueue(selectedQueue.queueName);
+      
+      // Clear all messages from the UI
+      setMessages([]);
+      setSelectedMessages(new Set());
+
+      alert(`Queue purged successfully! Removed ${result.successCount} messages.`);
+      console.log(`Queue ${selectedQueue.queueName} purged: ${result.successCount} messages removed`);
+      
+      // Refresh the message list
+      setTimeout(() => {
+        setLocalRefreshTrigger(Date.now());
+      }, 500);
+    } catch (error) {
+      console.error('Failed to purge queue:', error);
+      alert(`Failed to purge queue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const handleBulkCopy = () => {
     const messagesToCopy = messages.filter(m => selectedMessages.has(m.id));
     const jsonArray = messagesToCopy.map(m => m.body);
@@ -628,6 +668,12 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
       icon: 'delete',
       onPress: handleBulkDelete,
       danger: true,
+    },
+    {
+      label: 'Purge Queue',
+      icon: 'clear',
+      onPress: handlePurgeQueue,
+      danger: true,
       separator: true,
     },
     {
@@ -772,6 +818,10 @@ export default function MessageList({ onSelectMessage, selectedMessage, selected
             <TouchableOpacity style={styles.importButton} onPress={handleImportBulk}>
               <MaterialIcons name="upload" size={16} color="#cccccc" />
               <Text style={styles.importButtonText}>Import JSON</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.importButton, styles.purgeButton]} onPress={handlePurgeQueue}>
+              <MaterialIcons name="clear" size={16} color="#f48771" />
+              <Text style={[styles.importButtonText, styles.purgeButtonText]}>Purge Queue</Text>
             </TouchableOpacity>
             <TextInput
               style={styles.searchInput}
@@ -1026,6 +1076,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '500',
+  },
+  purgeButton: {
+    backgroundColor: '#8b4513',
+  },
+  purgeButtonText: {
+    color: '#f48771',
   },
   searchInput: {
     backgroundColor: '#3e3e42',

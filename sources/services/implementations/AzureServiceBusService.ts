@@ -445,6 +445,46 @@ export class AzureServiceBusService implements IMessageBrokerService {
     }
   }
 
+  async purgeQueue(queueName: string): Promise<{ successCount: number }> {
+    if (!this.client) {
+      throw new Error('Not connected to Azure Service Bus');
+    }
+
+    try {
+      console.log(`Purging all messages from queue: ${queueName}`);
+
+      // Create a receiver to get all messages and delete them
+      const receiver = this.client.createReceiver(queueName, {
+        receiveMode: 'receiveAndDelete' // This automatically deletes messages when received
+      });
+
+      let totalPurged = 0;
+      const batchSize = 100; // Process messages in batches
+
+      try {
+        while (true) {
+          // Receive messages in batches
+          const messages = await receiver.receiveMessages(batchSize, { maxWaitTimeInMs: 1000 });
+          
+          if (messages.length === 0) {
+            break; // No more messages
+          }
+
+          totalPurged += messages.length;
+          console.log(`Purged ${messages.length} messages (total: ${totalPurged})`);
+        }
+      } finally {
+        await receiver.close();
+      }
+
+      console.log(`Queue ${queueName} purged successfully - removed ${totalPurged} messages`);
+      return { successCount: totalPurged };
+    } catch (error: any) {
+      console.error(`Failed to purge queue ${queueName}:`, error);
+      throw new Error(`Failed to purge queue: ${error.message}`);
+    }
+  }
+
   getConnection(): IConnection | null {
     return this.connection;
   }
